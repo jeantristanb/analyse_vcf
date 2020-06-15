@@ -1,71 +1,12 @@
 #!/usr/bin/python
 # coding=utf-8
+from utils import *
 import argparse
 import re
 import os
 import sys
 import glob
 
-
-def Str(Number, Lim=2):
-    if type(Number)==float :
-       return str(round(Number,Lim))
-    return str(Number)
-
-def Concatener(Vecteur, sep="\t"):
-    Chaine=""
-    for El in Vecteur :
-       Chaine+=str(El)+sep
-    return Chaine
-
-
-def GetMatrix(Col, Row):
-    return [[0 for x in xrange(Col)] for x in xrange(Row)]
-def intersect(liste1, liste2):
-    return list(set(liste1) & set(liste2))
-
-def diff(liste1, liste2):
-    return list(set(liste1) - set(liste2))
-
-
-def GetInfoVcf(lines, postosave):
-    def getgeno(x,l):
-      if x[0]=='.'
-        return [None,None]
-     # if '/' in x :
-     #   p='/'
-     # else :
-     #   p='|'
-      splx=re.split([':|/'])
-      return [splx[int(x[0])], splx[int(x[1])]]
-    TmpSplit=lines.split()
-    Chro=TmpSplit[0]
-    Pos=TmpSplit[1]
-    NomPos=Chro+"_"+Pos
-    Ref=TmpSplit[3]
-    ListeAlt=TmpSplit[4].split(',')
-    TmpPos=[Ref] 
-    TmpPos+=ListAlt
-    return (Chro, Pos, Ref, ListAlt,[getgeno(TmpSplitp[x], ListAlt)  for x in postosave ])
-
-def GetHeaderVcf(File):
-    VcfRead=OpenFile(File)
-    Entete=[]
-    for line in Read:
-       if line[0]=="#" :
-         Entete.append(line.lower().replace("\n",""))
-       else :
-         Read.close()
-         return Entete
-    return Entete
-
-
-def OpenFile(Fichier, Type='r'):
-    try :
-       LireFich=open(Fichier, Type)
-    except IOError:
-       sys.exit("File "+ Fichier + " OuvrirFichier in mode " + Type + "can't OuvrirFichier")
-    return LireFich
 
 ## 
 def parseArguments():
@@ -137,9 +78,6 @@ def ComparePos(Allele1,Allele2,Vcf1,Vcf2):
        freqVcf2[Geno2[0]]+=1
        freqVcf2[Geno2[1]]+=1
        IsDiff=IsDiff(Geno1[0],Geno1[1],Geno2[0],Geno2[1])
-            
-          
-          
      Cmt+=1
 args = parseArguments()
 HeadVcf1=GetHeaderVcf(args.vcf1)
