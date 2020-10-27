@@ -46,10 +46,10 @@ for line in ReadVcf :
    infovcf=GetInfoVcf(line)
    for cmti in counthead:
        A1=infovcf[4][cmti][0]
-       if not A1 or (not UseIndel and len(A1)>0):
+       if not A1 or (not UseIndel and len(A1)>1):
           A1='N'
        A2=infovcf[4][cmti][1]
-       if not A2 or (not UseIndel and len(A2)>0):
+       if not A2 or (not UseIndel and len(A2)>1):
           A2='N'
        fastseq[cmti][0]+=A1
        fastseq[cmti][1]+=A2
@@ -59,4 +59,6 @@ for cmtind in counthead :
    Fasta+=">"+listhead[cmtind]+"_A1\n"+fastseq[cmti][0]+"\n" 
    Fasta+=">"+listhead[cmtind]+"_A2\n"+fastseq[cmti][1]+"\n" 
 
-open(args.out)
+WrA=open(args.out, 'w')
+WrA.write(Fasta)
+WrA.close()
