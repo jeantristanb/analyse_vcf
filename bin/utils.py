@@ -1,4 +1,5 @@
 # coding=utf-8
+import gzip
 
 def Str(Number, Lim=2):
     if type(Number)==float :
@@ -60,7 +61,10 @@ def GetHeaderVcf(File):
 
 def OpenFile(Fichier, Type='r'):
     try :
-       LireFich=open(Fichier, Type)
+       if Fichier.endswith('.gz') or Fichier.endswith('.gzip'):
+         LireFich=gzip.open(Fichier) 
+       else :
+         LireFich=open(Fichier, Type)
     except IOError:
        sys.exit("File "+ Fichier + " OuvrirFichier in mode " + Type + "can't OuvrirFichier")
     return LireFich
