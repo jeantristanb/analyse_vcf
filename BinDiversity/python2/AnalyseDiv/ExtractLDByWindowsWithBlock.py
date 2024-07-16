@@ -1,0 +1,422 @@
+# -*- coding: utf-8 -*-
+import sys
+import os 
+sys.path.append(os.environ['HOME']+"/bin/python2")
+import ComputePiHaploide
+from ExtractInfoFile import GetPop, GetNomVCF
+from ComputeLD import  ComputeLD1Segment
+import Spectrum_mod
+import gzip
+
+def CheckLigneVCF(SplitLigne):
+    if SplitLigne[0][0]!="#" and len(SplitLigne)>8 and len(SplitLigne[3])==1 and len(SplitLigne[4])==1:
+       return True
+
+def GetGFF(FileGFF) :
+    LireGFF=open(FileGFF)
+    DataGFF={}
+    for Ligne in LireGFF :
+        SplitLigne=Ligne.split()
+        Chro=SplitLigne[0]
+        PosI=int(SplitLigne[3])
+        PosF=int(SplitLigne[4])
+        if Chro not in DataGFF :
+           DataGFF[Chro]=[[] for x in range(6)]
+        DataGFF[Chro][0].append(PosI)
+        DataGFF[Chro][1].append(PosF)
+        DataGFF[Chro][3].append([])
+    return DataGFF
+
+
+def ValueGeno(a):
+    if a=='.':
+       return 0
+    elif a=='0':
+       return 1
+    elif a=='1':
+       return 2
+    else :
+       return 0
+
+## Permet pour une position donnee, a une pop donne de recuperer les genotypes
+def GetGenoPositionPopHaploide(LigneVCFSplit, Geno,ParcoursInd) :
+    Geno[0]=0; Geno[1]=0;Geno[2]=0
+    for Cmt in ParcoursInd :
+        A1=ValueGeno(LigneVCFSplit[Cmt][0])
+        A2=ValueGeno(LigneVCFSplit[Cmt][2])
+        ### Cas ou on enregistre que les homozygotes
+        if A1==A2 :
+           Geno[A1]+=1
+        else :
+           Geno[0]+=1
+
+def GetGenoPositionPopHaploideListeGeno(LigneVCFSplit, ParcoursInd) :
+    #Geno[0]=0; Geno[1]=0;Geno[2]=0
+    ListeGeno=[]
+    for Cmt in ParcoursInd :
+        A1=ValueGeno(LigneVCFSplit[Cmt][0])
+        A2=ValueGeno(LigneVCFSplit[Cmt][2])
+        ### Cas ou on enregistre que les homozygotes
+        if A1==A2 :
+           ListeGeno.append(A1)
+        else :
+           ListeGeno.append(0)
+    return ListeGeno
+
+
+def Ouvrir(FileVCF, IsGZ=False) :
+    try :
+       if  IsGZ :
+         Lire=gzip.open(FileVCF)
+       else :
+         Lire=open(FileVCF)
+    except :
+        sys.exit("File : "+FileVCF+"not found")
+    return Lire
+
+### http://www.cell.com/cms/attachment/599136/4711220/mmc1.pdf
+def ComputeDiv(ListeVariant1, ListeVariant2 , MinFreqBon, NInd, PreComputea1, PreComputea2):
+    Taj=ComputePiHaploide.TajimaDWithMissingData(ListeVariant1,ListeVariant2,PreComputea1,PreComputea2,NInd, MinFreqBon, 2)
+    return ("\t".join([str(x) for x in Taj]),Taj)
+      
+def ComputeFstReichFen(ListeVariant1Pop1, ListeVariant2Pop1, N1,ListeVariant1Pop2, ListeVariant2Pop2, N2, MinFreqBon) :
+    Nf=0.0
+    Df=0.0
+    N1=float(N1)
+    N2=float(N2)
+    CmtLocus=0
+    for CmtVariant in range(0,len(ListeVariant1Pop1)):
+       n1=float(ListeVariant1Pop1[CmtVariant]+ListeVariant2Pop1[CmtVariant])
+       n2=float(ListeVariant1Pop2[CmtVariant]+ListeVariant2Pop2[CmtVariant])
+       a1=float(ListeVariant1Pop1[CmtVariant])
+       a2=float(ListeVariant1Pop2[CmtVariant])
+       if n1/N1 > MinFreqBon and n2/N2 > MinFreqBon and a1+a2!=0 and a1+a2!=n1+n2:
+          (N,D)=ComputePiHaploide.ComputeFstReich(a1,a2, n1, n2)
+          Nf+=N 
+          Df+=D 
+          CmtLocus+=1
+    if CmtLocus==0 :
+       return ["NA", 0, 0, CmtLocus]
+    return [Nf/Df,Nf, Df, CmtLocus]
+    
+def PrintAndComputeFst(EcrireFstFen,Chro,PositionDebFen,PositionFinFen,ListeVariant1,ListeVariant2, PosVcfIndPop,NbPop,MinFreqBon,AllFst ) :
+      Chaine=Chro+"\t"+str(PositionDebFen)+"\t"+str(PositionFinFen)
+      CmtPop=0
+      while CmtPop<NbPop-1 :
+          CmtPop2=CmtPop+1
+          while CmtPop2<NbPop :
+              if len(ListeVariant1)==0:
+                  InfoFst=ComputeFstReichFen([], [], len(PosVcfIndPop[CmtPop]),[], [], len(PosVcfIndPop[CmtPop2]), MinFreqBon)
+              else :
+                 InfoFst=ComputeFstReichFen(ListeVariant1[CmtPop], ListeVariant2[CmtPop], len(PosVcfIndPop[CmtPop]),ListeVariant1[CmtPop2], ListeVariant2[CmtPop2], len(PosVcfIndPop[CmtPop2]), MinFreqBon)
+              CmtValueFst=0
+              for Value in InfoFst :
+                  if InfoFst[0]!="NA" :
+                     AllFst[CmtPop][CmtPop2][CmtValueFst]+=Value
+                     CmtValueFst+=1
+              Chaine+="\t"+"\t".join([str(x) for x in InfoFst])
+              CmtPop2+=1
+          CmtPop+=1
+      EcrireFstFen.write(Chaine+"\n")
+
+def PrintAndComputeDtaj(EcrireDtajFen,Chro,PositionDebFen,PositionFinFen,ListeVariant1,ListeVariant2, PosVcfIndPop,ListeCmtPop,PreComputea1, PreComputea2, AllDtaj) :
+    Chaine=Chro+"\t"+str(PositionDebFen)+"\t"+str(PositionFinFen)
+    for Pop in ListeCmtPop :
+        if(len(ListeVariant1)==0) :
+           (StrDtaj,InfoDtaj)=ComputeDiv([], [] , MinFreqBon, len(PosVcfIndPop[Pop]), PreComputea1, PreComputea2)
+        else :
+           (StrDtaj,InfoDtaj)=ComputeDiv(ListeVariant1[Pop], ListeVariant2[Pop] , MinFreqBon, len(PosVcfIndPop[Pop]), PreComputea1, PreComputea2)
+        Chaine+="\t"+StrDtaj
+        CmtValueD=0
+        for Value in InfoDtaj :
+            if Value!="NA" :
+               AllDtaj[Pop][CmtValueD]+=Value
+            CmtValueD+=1
+    EcrireDtajFen.write(Chaine+"\n")
+
+
+def ComputeFreqVariant(ListeVariant):
+    ListeVariant1=[]
+    ListeVariant2=[]
+    for ListeVariantPop in ListeVariant :
+        ListeVariant1Pop=[]
+        ListeVariant2Pop=[]
+        for Variant in ListeVariantPop :
+            Snp=[0,0,0]
+            for Poly in Variant : 
+                Snp[Poly]+=1 
+            ListeVariant1Pop.append(Snp[1])
+            ListeVariant2Pop.append(Snp[2])
+        ListeVariant1.append(ListeVariant1Pop)
+        ListeVariant2.append(ListeVariant2Pop)
+    return(ListeVariant1, ListeVariant2)
+    
+
+def ComputeLD(EcrireLD, Chro, PositionDebFen,PositionFinFen, ListeVariant, ListeCmtPop,MinFreqBon) :
+    Chaine=Chro+"\t"+str(PositionDebFen)+"\t"+str(PositionFinFen)
+    for CmtPop in ListeCmtPop :
+        if len(ListeVariant)==0 :
+           Value=ComputeLD1Segment([], 0,MinFreqBon)    
+        else :
+           Value=ComputeLD1Segment(ListeVariant[CmtPop], 0,MinFreqBon)    
+        Chaine+="\t"+"\t".join(str(x) for x in Value)
+    EcrireLD.write(Chaine+"\n")
+
+
+def EstDansGFF(DicGFF, Chro, Pos):
+    if Chro not in DicGFF :
+       return None
+    GFFChroDeb=DicGFF[Chro][0]
+    GFFChroFin=DicGFF[Chro][1]
+    NbElem=len(GFFChroDeb)
+    Cmt=0
+    while Cmt <NbElem :
+      if GFFChroDeb[Cmt]<=Pos and Pos<=GFFChroFin[Cmt] :
+         return Cmt
+      Cmt+=1
+    return None
+
+def AppendInGFF(DicGFF, Chro, Pos, PosInGFF,PosVcfIndPop, SplitLigne,ListeCmtPop) :
+    if len(DicGFF[Chro][3][PosInGFF])==0 :
+       DicGFF[Chro][3][PosInGFF]=[[] for x in ListeCmtPop]
+    for CmtPop in ListeCmtPop :
+       DicGFF[Chro][3][PosInGFF][CmtPop].append(GetGenoPositionPopHaploideListeGeno(SplitLigne, PosVcfIndPop[CmtPop]))
+    
+
+def PrintResumeDataAll(AllDtaj, AllFst,ListeCmtPop,EnteteSortie,NomEnteteDtaj, ChaineEnteteFst,  PreComputea1, PreComputea2, PosVcfIndPop) :
+    EcrireDtaAll=open(EnteteSortie+".all.dtaj",'w')
+    EcrireDtaAll.write("Type"+NomEnteteDtaj+"\n")
+    Chaine="All"
+    for Pop in ListeCmtPop :
+        #TajimaDWithMissingData(Liste1,Liste2,PreComputea1,PreComputea2,MaxN, MinFreqNa, MinFreqS, SumThetaPi=None, SumThetaW=None, S=None)
+        Value=ComputePiHaploide.TajimaDWithMissingData(None, None , PreComputea1, PreComputea2,len(PosVcfIndPop[Pop]),MinFreqBon,2, SumThetaPi=AllDtaj[Pop][2], SumThetaW=AllDtaj[Pop][3], S=AllDtaj[Pop][1], NbPosition=AllDtaj[Pop][5])
+        Chaine+="\t"+"\t".join([str(x) for x in Value])
+    EcrireDtaAll.write(Chaine+"\n")
+    EcrireDtaAll.close()
+    EcrireFstAll=open(EnteteSortie+".all.fst",'w')
+    EcrireFstAll.write("Type"+ChaineEnteteFst+"\n")
+    Chaine="All"
+    CmtPop=0
+    while CmtPop<NbPop-1 :
+          CmtPop2=CmtPop+1
+          while CmtPop2<NbPop :
+                #Tmp=ComputeFstReichFen(ListeAll1[CmtPop], ListeAll2[CmtPop], len(PosVcfIndPop[CmtPop]),ListeAll1[CmtPop2], ListeAll2[CmtPop2], len(PosVcfIndPop[CmtPop2]), MinFreqBon)
+                Tmp=AllFst[CmtPop][CmtPop2]
+                Tmp[0]=Tmp[1]/Tmp[2]
+                Chaine+="\t"+"\t".join([str(x) for x in Tmp])
+                CmtPop2+=1
+          CmtPop+=1
+    EcrireFstAll.write(Chaine)
+
+
+
+        
+
+def RecupereDivWithGFF(ListeVCF,DicGFF,PosVcfIndPop, TailleFenetre,MinFreqBon,IsGZ, EnteteSortie, NomEnteteDtaj, ChaineEnteteFst, ChaineEnteteLD):
+    ListeCmtPop=range(len(PosVcfIndPop))
+    NbPop=len(PosVcfIndPop)
+    BaliseBegin=True
+    MaxNbInd=max([len(x) for x in PosVcfIndPop])
+    PreComputea1=ComputePiHaploide.PrecomputingDa1(MaxNbInd)
+    PreComputea2=ComputePiHaploide.PrecomputingDa2(MaxNbInd)
+    AllDtaj=[[0 for x in range(7)] for x in range(NbPop)]
+    AllFst=[[[0 for x in range(4)] for x in range(NbPop)] for x in range(NbPop)]
+    EcrireDtajFen=open(EnteteSortie+".win.dtaj",'w')
+    EcrireDtajFen.write("Chro\tPosDeb\tPosFin"+NomEnteteDtaj+"\n")
+    EcrireFstFen=open(EnteteSortie+".win.fst",'w')
+    EcrireFstFen.write("Chro\tPosDeb\tPosFin"+ChaineEnteteFst+"\n")
+    EcrireLD=open(EnteteSortie+".win.ld",'w')
+    EcrireLD.write("Chro\tPosDeb\tPosFin"+ChaineEnteteLD+"\n")
+    Geno=[0,0,0]
+    for FileVCF in ListeVCF :
+       Lire=Ouvrir(FileVCF, IsGZ)
+       for Ligne in Lire :
+          SplitLigne=Ligne.split()
+          if CheckLigneVCF(SplitLigne):
+             Position=int(SplitLigne[1])
+             Chro=SplitLigne[0]
+             PosInGFF=EstDansGFF(DicGFF, Chro, Position) 
+             if PosInGFF!=None :
+                AppendInGFF(DicGFF, Chro, Position, PosInGFF,PosVcfIndPop, SplitLigne,ListeCmtPop)
+    for Chro in DicGFF :
+        for CmtBloc in range(0,len(DicGFF[Chro][0])):
+            ListeVariant=DicGFF[Chro][3][CmtBloc]
+            (ListeVariant1,ListeVariant2)=ComputeFreqVariant(ListeVariant)
+            PositionDebFen=DicGFF[Chro][0][CmtBloc]
+            PositionFinFen=DicGFF[Chro][1][CmtBloc]
+            PrintAndComputeDtaj(EcrireDtajFen,Chro,PositionDebFen,PositionFinFen,ListeVariant1,ListeVariant2, PosVcfIndPop,ListeCmtPop,PreComputea1, PreComputea2, AllDtaj)
+            PrintAndComputeFst(EcrireFstFen,Chro,PositionDebFen,PositionFinFen,ListeVariant1,ListeVariant2, PosVcfIndPop,NbPop,MinFreqBon,AllFst)
+            ComputeLD(EcrireLD, Chro, PositionDebFen,PositionFinFen, ListeVariant, ListeCmtPop,MinFreqBon)
+    PrintResumeDataAll(AllDtaj, AllFst,ListeCmtPop,EnteteSortie,NomEnteteDtaj, ChaineEnteteFst, PreComputea1, PreComputea2, PosVcfIndPop) 
+                
+ 
+
+
+
+    
+
+def RecupereDivWithFenetre(ListeVCF,DicGFF,PosVcfIndPop, TailleFenetre,MinFreqBon,IsGZ, EnteteSortie, NomEnteteDtaj, ChaineEnteteFst, ChaineEnteteLD):
+    ListeCmtPop=range(len(PosVcfIndPop))
+    NbPop=len(PosVcfIndPop)
+    BaliseBegin=True
+    MaxNbInd=max([len(x) for x in PosVcfIndPop])
+    PreComputea1=ComputePiHaploide.PrecomputingDa1(MaxNbInd)
+    PreComputea2=ComputePiHaploide.PrecomputingDa2(MaxNbInd)
+    AllDtaj=[[0 for x in range(7)] for x in range(NbPop)] 
+    AllFst=[[[0 for x in range(4)] for x in range(NbPop)] for x in range(NbPop)] 
+    EcrireDtajFen=open(EnteteSortie+".win.dtaj",'w')
+    EcrireDtajFen.write("Chro\tPosDeb\tPosFin"+NomEnteteDtaj+"\n")
+    EcrireFstFen=open(EnteteSortie+".win.fst",'w')
+    EcrireFstFen.write("Chro\tPosDeb\tPosFin"+ChaineEnteteFst+"\n")
+    EcrireLD=open(EnteteSortie+".win.ld",'w')
+    EcrireLD.write("Chro\tPosDeb\tPosFin"+ChaineEnteteLD+"\n")
+    Geno=[0,0,0]
+    for FileVCF in ListeVCF :
+       Lire=Ouvrir(FileVCF, IsGZ)
+       CmtLigne=0
+       FenetreGeno=[]
+       PosEnregistre=[]
+       for Ligne in Lire :
+          SplitLigne=Ligne.split()
+          if CheckLigneVCF(SplitLigne):
+             Position=int(SplitLigne[1])
+             Chro=SplitLigne[0]
+             if BaliseBegin :
+                PositionDebFen=0#int(Position/TailleFenetre)*TailleFenetre
+                PositionFinFen=PositionDebFen+TailleFenetre#PositionDebFen+TailleFenetre
+                ChroEnCours=Chro
+                BaliseBegin=False
+                ListeVariant=[[] for x in ListeCmtPop]
+             elif Position > PositionDebFen or Chro != ChroEnCours :
+                (ListeVariant1,ListeVariant2)=ComputeFreqVariant(ListeVariant)
+                PrintAndComputeDtaj(EcrireDtajFen,Chro,PositionDebFen,PositionFinFen,ListeVariant1,ListeVariant2, PosVcfIndPop,ListeCmtPop,PreComputea1, PreComputea2, AllDtaj)
+                PrintAndComputeFst(EcrireFstFen,Chro,PositionDebFen,PositionFinFen,ListeVariant1,ListeVariant2, PosVcfIndPop,NbPop,MinFreqBon,AllFst)
+                ComputeLD(EcrireLD, Chro, PositionDebFen,PositionFinFen, ListeVariant, ListeCmtPop,MinFreqBon)
+                if Chro!=ChroEnCours :
+                   ChroEnCours=Chro    
+                   PositionDebFen=0
+                   PositionFinFen=PositionDebFen+TailleFenetre
+                else :
+                   PositionDebFen=PositionFinFen
+                   PositionFinFen=PositionDebFen+SizeWindows
+                ListeVariant=[[] for x in ListeCmtPop]
+             for CmtPop in ListeCmtPop :
+                 ListeVariant[CmtPop].append(GetGenoPositionPopHaploideListeGeno(SplitLigne, PosVcfIndPop[CmtPop]))
+    (ListeVariant1,ListeVariant2)=ComputeFreqVariant(ListeVariant)
+    PrintAndComputeDtaj(EcrireDtajFen,Chro,PositionDebFen,PositionFinFen,ListeVariant1,ListeVariant2, PosVcfIndPop,ListeCmtPop,PreComputea1, PreComputea2, AllDtaj)
+    EcrireDtajFen.close()
+    PrintAndComputeFst(EcrireFstFen,Chro,PositionDebFen,PositionFinFen,ListeVariant1,ListeVariant2, PosVcfIndPop,NbPop,MinFreqBon,AllFst )
+    EcrireFstFen.close()
+    EcrireDtaAll=open(EnteteSortie+".all.dtaj",'w')
+    EcrireDtaAll.write("Type"+NomEnteteDtaj+"\n")
+    Chaine="All"
+    for Pop in ListeCmtPop :
+        #TajimaDWithMissingData(Liste1,Liste2,PreComputea1,PreComputea2,MaxN, MinFreqNa, MinFreqS, SumThetaPi=None, SumThetaW=None, S=None)
+        Value=ComputePiHaploide.TajimaDWithMissingData(None, None , PreComputea1, PreComputea2,len(PosVcfIndPop[Pop]),MinFreqBon,2, SumThetaPi=AllDtaj[Pop][2], SumThetaW=AllDtaj[Pop][3], S=AllDtaj[Pop][1], NbPosition=AllDtaj[Pop][5])
+        Chaine+="\t"+"\t".join([str(x) for x in Value])
+    EcrireDtaAll.write(Chaine+"\n")
+    EcrireDtaAll.close()
+    EcrireFstAll=open(EnteteSortie+".all.fst",'w')
+    EcrireFstAll.write("Type"+ChaineEnteteFst+"\n")
+    Chaine="All"
+    CmtPop=0
+    while CmtPop<NbPop-1 :
+          CmtPop2=CmtPop+1
+          while CmtPop2<NbPop :
+                #Tmp=ComputeFstReichFen(ListeAll1[CmtPop], ListeAll2[CmtPop], len(PosVcfIndPop[CmtPop]),ListeAll1[CmtPop2], ListeAll2[CmtPop2], len(PosVcfIndPop[CmtPop2]), MinFreqBon)
+                Tmp=AllFst[CmtPop][CmtPop2]
+                Tmp[0]=Tmp[1]/Tmp[2]
+                Chaine+="\t"+"\t".join([str(x) for x in Tmp])
+                CmtPop2+=1
+          CmtPop+=1
+    EcrireFstAll.write(Chaine)
+
+    
+
+     
+
+#ListeFileVCF=["/home/jeantristan/Travail/Data/DataTrip/SnpNoGeneWithTripAA.vcf.gz"]
+#ListeFileVCF=["/home/jeantristan/Travail/Data/AllDataWithGene/SnpAll.vcf.gzip"]
+#FilePop="../NomInd-Conc"
+#EstGZ=True
+#SizeWindows=100000
+#MinFreqBon=0.7
+#EnteteSortie="TripWindow"
+if len(sys.argv)<7 :
+   sys.exit("exe FilePop EstGZ[T/F] SizeWindows/GFF MinFreqAvailable Entete ListeFileVCF\n"+"\t".join(sys.argv))
+FilePop=sys.argv[1]
+EstGZ=sys.argv[2]
+if EstGZ=="F" :
+   EstGZ=False
+elif EstGZ=="T":
+   EstGZ=True
+else: 
+   sys.exit("EstGZ : " + EstGZ + "not T or F")
+
+EstGFF=False
+SizeWindows=None
+FileGFF=None
+try :
+   SizeWindows=int(sys.argv[3])
+except :
+    if sys.argv[3][-3::]=="gff" :
+       FileGFF=sys.argv[3]
+       EstGFF=True
+    else : 
+       sys.exit("arg 3 : not size windows or gff\n "+sys.argv[3])
+       
+
+MinFreqBon=float(sys.argv[4])
+EnteteSortie=sys.argv[5]
+ListeFileVCF=sys.argv[6::]
+
+
+### Lecture des Ind et de leur pop
+DicInfoPop=GetPop(FilePop)
+
+DicGFF=GetGFF(FileGFF)
+
+LireVCF=Ouvrir(ListeFileVCF[0], EstGZ)
+### on recupere les positions des noms des VCF en fonctio de ceux des individus
+(InfoNomPosPop,PosExterne)=GetNomVCF(LireVCF, DicInfoPop)
+###
+LireVCF.close()
+
+NomPop=DicInfoPop['PopIndic']
+ChaineEntete=""
+NomEnteteDtaj=['Dtj', 'S', 'pi', 'TetWat', 'n', 'NbPos', 'NbPoly']
+for Pop in range(0,len(NomPop)):
+    ##[(pihat - theta)/C, S, pihat, theta, n]
+    for Entete in NomEnteteDtaj :
+       ChaineEntete+= "\t"+Entete+"_"+NomPop[Pop]
+
+NbPop=len(NomPop)
+ChaineEnteteFst=""
+NomEnteteDtaj=['Fst', 'N', 'D', 'NbPoly']
+CmtPop=0
+while CmtPop<NbPop-1 :
+      CmtPop2=CmtPop+1
+      while CmtPop2<NbPop :
+         for Entete in NomEnteteDtaj :
+             ChaineEnteteFst+="\t"+Entete+"_"+NomPop[CmtPop]+"_"+NomPop[CmtPop2]
+         CmtPop2+=1
+      CmtPop+=1
+
+NomPop=DicInfoPop['PopIndic']
+ChaineEnteteLD=""
+NomEnteteLD=["Dprime","Rcarre", "NbSignif","NbCmp","DprimeMinFreq","RcarreMinFreq", "NbSignifMinFreq","NbCmpMinFreq"]
+for Pop in range(0,len(NomPop)):
+    ##[(pihat - theta)/C, S, pihat, theta, n]
+    for Entete in NomEnteteLD:
+       ChaineEnteteLD+= "\t"+Entete+"_"+NomPop[Pop]
+
+
+
+if EstGFF :
+   RecupereDivWithGFF(ListeFileVCF, DicGFF,InfoNomPosPop,SizeWindows,MinFreqBon,EstGZ, EnteteSortie, ChaineEntete, ChaineEnteteFst, ChaineEnteteLD)
+else :
+   RecupereDivWithFenetre(ListeFileVCF, DicGFF,InfoNomPosPop,SizeWindows,MinFreqBon,EstGZ, EnteteSortie, ChaineEntete, ChaineEnteteFst, ChaineEnteteLD)
+
+
+
+
